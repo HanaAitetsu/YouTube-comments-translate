@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>YouTube コメント翻訳テスト</title>
+<style>
+body { font-family: sans-serif; padding: 20px; }
+input, button { margin: 5px 0; padding: 5px; }
+.comment-box{
+    margin:10px 0; padding:10px; border:1px solid #ccc; border-radius: 5px;
+}
+.comment-original { font-weight: bold; }
+.comment-translated { color: #0077cc; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h2>YouTube コメント翻訳デモ</h2>
+
+<label>動画ID: <input id="videoId"></label><br>
+<label>YouTube API Key: <input id="ytApi"></label><br>
+<label>Translate API Key: <input id="trApi"></label><br>
+
+<label>翻訳先言語:
+    <select id="targetLang">
+        <option value="ja">日本語</option>
+        <option value="en">英語</option>
+        <option value="ko">韓国語</option>
+        <option value="zh">中国語</option>
+    </select>
+</label>
+<br>
+
+<button onclick="start()">Start</button>
+
+<h3>リアルタイムコメント</h3>
+<div id="comments"></div>
+
+<script>
+let nextPageToken = "";
+let interval = null;
+
+async function fetchComments() {
+    const videoId = document.getElementById("videoId").value;
+    const ytKey = document.getElementById("ytApi").value;
+
+    let url =
+      `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&key=${ytKey}&order=time&pageToken=${nextPageToken}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    nextPageToken = data.nextPageToken || "";
+
+    for (const item of (data.items || [])) {
+        const text = item.snippet.topLevelComment.snippet.textDisplay;
+        translateAndDisplay(text);
+    }
+}
+
+async function translateAndDisplay(text) {
+    const trKey = document.getElementById("trApi").value;
+    const target = document.getElementById("targetLang").value;
+
+    const url = `https://translation.googleapis.com/language/translate/v2?key=${trKey}`;
+
+    const res = await fetch(url, {
+        method: "POST",
+        body: JSON.stringify({
+            q: text,
+            target: target
+        })
+    });
+
+    const data = await res.json();
+    const translated = data.data.translations[0].translatedText;
+
+    const box = document.createElement("div");
+    box.className = "comment-box";
+
+    box.innerHTML = `
+        <div class="comment-original">${text}</div>
+        <div class="comment-translated">${translated}</div>
+    `;
+
+    document.getElementById("comments").prepend(box);
+}
+
+function start() {
+    if (interval) clearInterval(interval);
+    interval = setInterval(fetchComments, 3000); // 3秒ごとに取得
+}
+</script>
+
+</body>
+</html>
