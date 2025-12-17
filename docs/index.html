@@ -17,10 +17,6 @@
       border-bottom: 1px solid #333;
       padding: 6px 0;
     }
-    .author {
-      color: #4fc3f7;
-      font-weight: bold;
-    }
   </style>
 </head>
 <body>
@@ -33,22 +29,19 @@
 <div id="comments"></div>
 
 <script>
-const API_KEY = "AIzaSyABeIrmDX6-ytlEFkqvakC1QE66NrvvSsE"; // ← リファラ制限必須
+/* ========= 設定 ========= */
+const API_KEY = "AIzaSyABeIrmDX6-ytlEFkqvakC1QE66NrvvSsE"; // リファラ制限必須
+const TRANSLATE_API = "https://libretranslate.de/translate";
 
 let liveChatId = null;
 let nextPageToken = null;
 let pollingInterval = 5000;
 
-<script>
-const API_KEY = "ここにYouTube APIキー";
-const TRANSLATE_API = "https://libretranslate.de/translate";
-
- async function translateText(text, target = "ja") {
+/* ========= 翻訳関連 ========= */
+async function translateText(text, target = "ja") {
   const res = await fetch(TRANSLATE_API, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       q: text,
       source: "auto",
@@ -57,15 +50,15 @@ const TRANSLATE_API = "https://libretranslate.de/translate";
     })
   });
 
- function isJapanese(text) {
-  return /[ぁ-んァ-ン一-龯]/.test(text);
-}
-
-
   const data = await res.json();
   return data.translatedText;
 }
 
+function isJapanese(text) {
+  return /[ぁ-んァ-ン一-龯]/.test(text);
+}
+
+/* ========= YouTube ========= */
 async function start() {
   const videoId = document.getElementById("videoId").value;
   await fetchLiveChatId(videoId);
@@ -100,12 +93,15 @@ async function fetchChatLoop() {
   pollingInterval = data.pollingIntervalMillis || 5000;
 
   if (data.items) {
-    data.items.forEach(addComment);
+    for (const item of data.items) {
+      await addComment(item);
+    }
   }
 
   setTimeout(fetchChatLoop, pollingInterval);
 }
 
+/* ========= 表示 ========= */
 async function addComment(item) {
   if (item.snippet.type !== "textMessageEvent") return;
 
