@@ -1,152 +1,97 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>YouTube ライブコメント翻訳（LibreTranslate）</title>
-<style>
-body {
-  font-family: sans-serif;
-  background: #111;
-  color: #eee;
-  margin: 0;
-  padding: 16px;
-}
-h2 {
-  margin-top: 0;
-}
-input, select, button {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 10px;
-  font-size: 16px;
-  border-radius: 8px;
-  border: none;
-}
-button {
-  background: #4caf50;
-  color: white;
-}
-#log {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 12px;
-}
-.comment {
-  background: #222;
-  padding: 10px;
-  border-radius: 8px;
-}
-.author {
-  font-weight: bold;
-}
-.translated {
-  margin-top: 4px;
-}
-.original {
-  margin-top: 4px;
-  font-size: 13px;
-  color: #aaa;
-}
-</style>
+  <meta charset="UTF-8">
+  <title>YouTube ライブコメント取得</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #111;
+      color: #fff;
+    }
+    #comments {
+      max-width: 600px;
+      margin: auto;
+    }
+    .comment {
+      border-bottom: 1px solid #333;
+      padding: 6px 0;
+    }
+    .author {
+      color: #4fc3f7;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
 
-<h2>ライブコメント翻訳（LibreTranslate）</h2>
+<h2>YouTube ライブコメント表示</h2>
 
-<input id="videoId" placeholder="YouTube 動画ID">
-<input id="apiKey" placeholder="YouTube API Key">
-
-<select id="targetLang">
-  <option value="ja">To Japanese</option>
-  <option value="en">To English</option>
-  <option value="ko">To Korean</option>
-  <option value="zh">To Chinese</option>
-  <option value="es">To Spanish</option>
-</select>
-
+<input id="videoId" placeholder="動画ID">
 <button onclick="start()">開始</button>
 
-<div id="log"></div>
+<div id="comments"></div>
 
 <script>
+const API_KEY = "AIzaSyABeIrmDX6-ytlEFkqvakC1QE66NrvvSsE"; // ← リファラ制限必須
+
 let liveChatId = null;
-let lastTimestamp = null;
+let nextPageToken = null;
+let pollingInterval = 5000;
 
-// ① 動画ID → liveChatId を取得
-async function fetchLiveChatId(videoId, apiKey) {
-  const res = await fetch(
-    `https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${videoId}&key=${apiKey}`
-  );
-  const data = await res.json();
-  return data.items?.[0]?.liveStreamingDetails?.activeLiveChatId || null;
+async function start() {
+  const videoId = document.getElementById("videoId").value;
+  await fetchLiveChatId(videoId);
+  fetchChatLoop();
 }
 
-// ② LibreTranslate で翻訳
-async function translate(text, target) {
-  const res = await fetch("https://libretranslate.com/translate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      q: text,
-      source: "auto",
-      target: target,
-      format: "text"
-    })
-  });
+async function fetchLiveChatId(videoId) {
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${videoId}&key=${API_KEY}`;
+  const res = await fetch(url);
   const data = await res.json();
-  return data.translatedText;
-}
 
-// ③ コメント取得ループ
-async function pollComments(apiKey) {
-  const res = await fetch(
-    `https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet,authorDetails&liveChatId=${liveChatId}&key=${apiKey}`
-  );
-  const data = await res.json();
-  if (!data.items) return;
-
-  for (const item of data.items) {
-    const time = item.snippet.publishedAt;
-    if (lastTimestamp && time <= lastTimestamp) continue;
-    lastTimestamp = time;
-
-    const author = item.authorDetails.displayName;
-    const original = item.snippet.displayMessage;
-    const target = document.getElementById("targetLang").value;
-
-    const translated = await translate(original, target);
-    addComment(author, translated, original);
+  if (!data.items || !data.items[0]?.liveStreamingDetails?.activeLiveChatId) {
+    alert("ライブ配信中の動画ではありません");
+    return;
   }
+
+  liveChatId = data.items[0].liveStreamingDetails.activeLiveChatId;
 }
 
-// ④ 表示
-function addComment(author, translated, original) {
+async function fetchChatLoop() {
+  if (!liveChatId) return;
+
+  let url = `https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet,authorDetails&liveChatId=${liveChatId}&key=${API_KEY}`;
+  if (nextPageToken) {
+    url += `&pageToken=${nextPageToken}`;
+  }
+
+  const res = await fetch(url);
+  const data = await res.json();
+
+  nextPageToken = data.nextPageToken;
+  pollingInterval = data.pollingIntervalMillis || 5000;
+
+  if (data.items) {
+    data.items.forEach(addComment);
+  }
+
+  setTimeout(fetchChatLoop, pollingInterval);
+}
+
+function addComment(item) {
+  if (item.snippet.type !== "textMessageEvent") return;
+
   const div = document.createElement("div");
   div.className = "comment";
+
   div.innerHTML = `
-    <div class="author">${author}</div>
-    <div class="translated">${translated}</div>
-    <div class="original">原文：${original}</div>
+    <span class="author">${item.authorDetails.displayName}</span>：
+    ${item.snippet.displayMessage}
   `;
-  document.getElementById("log").appendChild(div);
-}
 
-// ⑤ 開始
-async function start() {
-  const videoId = document.getElementById("videoId").value.trim();
-  const apiKey = document.getElementById("apiKey").value.trim();
-  if (!videoId || !apiKey) {
-    alert("動画IDとAPI Keyを入力してね！");
-    return;
-  }
-
-  liveChatId = await fetchLiveChatId(videoId, apiKey);
-  if (!liveChatId) {
-    alert("ライブ配信が見つかりません！");
-    return;
-  }
-
-  setInterval(() => pollComments(apiKey), 2000);
+  const comments = document.getElementById("comments");
+  comments.prepend(div);
 }
 </script>
 
