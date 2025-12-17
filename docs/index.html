@@ -1,152 +1,154 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTubeコメント自動翻訳（安定版）</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f6f6f6;
-      padding: 1rem;
-    }
-    h1 { font-size: 1.3rem; }
-    input, select, button {
-      width: 100%;
-      padding: 0.4rem;
-      margin: 0.3rem 0;
-      font-size: 1rem;
-    }
-    button {
-      background: #2563eb;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-    }
-    .comment {
-      background: #fff;
-      border-radius: 10px;
-      padding: 0.6rem;
-      margin-top: 0.6rem;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    }
-    .original {
-      font-size: 0.95rem;
-      color: #333;
-    }
-    .translated {
-      margin-top: 0.3rem;
-      color: #2563eb;
-      font-weight: bold;
-    }
-    .badge {
-      font-size: 0.7rem;
-      background: #eee;
-      padding: 0.1rem 0.4rem;
-      border-radius: 999px;
-      margin-left: 0.4rem;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>YouTube ライブコメント翻訳（LibreTranslate）</title>
+<style>
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  margin: 0;
+  padding: 16px;
+}
+h2 {
+  margin-top: 0;
+}
+input, select, button {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+  font-size: 16px;
+  border-radius: 8px;
+  border: none;
+}
+button {
+  background: #4caf50;
+  color: white;
+}
+#log {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 12px;
+}
+.comment {
+  background: #222;
+  padding: 10px;
+  border-radius: 8px;
+}
+.author {
+  font-weight: bold;
+}
+.translated {
+  margin-top: 4px;
+}
+.original {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #aaa;
+}
+</style>
 </head>
 <body>
-  <h1>📺 YouTubeコメント自動翻訳（安定版）</h1>
 
-  <label>動画ID</label>
-  <input id="videoId" placeholder="dQw4w9WgXcQ" />
+<h2>ライブコメント翻訳（LibreTranslate）</h2>
 
-  <label>YouTube Data API Key</label>
-  <input id="apiKey" placeholder="AIza..." />
+<input id="videoId" placeholder="YouTube 動画ID">
+<input id="apiKey" placeholder="YouTube API Key">
 
-  <label>翻訳先言語</label>
-  <select id="targetLang">
-    <option value="ja">日本語</option>
-    <option value="en">English</option>
-    <option value="ko">한국어</option>
-  </select>
+<select id="targetLang">
+  <option value="ja">To Japanese</option>
+  <option value="en">To English</option>
+  <option value="ko">To Korean</option>
+  <option value="zh">To Chinese</option>
+  <option value="es">To Spanish</option>
+</select>
 
-  <button onclick="start()">取得開始</button>
+<button onclick="start()">開始</button>
 
-  <div id="comments"></div>
+<div id="log"></div>
 
-  <script>
-    const commentsDiv = document.getElementById("comments");
+<script>
+let liveChatId = null;
+let lastTimestamp = null;
 
-    async function detectLanguage(text) {
-      const res = await fetch("https://libretranslate.de/detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q: text })
-      });
-      const data = await res.json();
-      return data[0]?.language;
-    }
+// ① 動画ID → liveChatId を取得
+async function fetchLiveChatId(videoId, apiKey) {
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${videoId}&key=${apiKey}`
+  );
+  const data = await res.json();
+  return data.items?.[0]?.liveStreamingDetails?.activeLiveChatId || null;
+}
 
-    async function translate(text, target) {
-      const res = await fetch("https://libretranslate.de/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q: text, source: "auto", target })
-      });
-      const data = await res.json();
-      return data.translatedText;
-    }
+// ② LibreTranslate で翻訳
+async function translate(text, target) {
+  const res = await fetch("https://libretranslate.com/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      q: text,
+      source: "auto",
+      target: target,
+      format: "text"
+    })
+  });
+  const data = await res.json();
+  return data.translatedText;
+}
 
-    async function smartTranslate(text, target) {
-      try {
-        const lang = await detectLanguage(text);
-        if (lang === target) {
-          return { text, translated: false };
-        }
-        const t = await translate(text, target);
-        return { text: t, translated: true };
-      } catch (e) {
-        console.error(e);
-        return { text: "（翻訳失敗）", translated: false };
-      }
-    }
+// ③ コメント取得ループ
+async function pollComments(apiKey) {
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet,authorDetails&liveChatId=${liveChatId}&key=${apiKey}`
+  );
+  const data = await res.json();
+  if (!data.items) return;
 
-    async function fetchComments(videoId, apiKey) {
-      const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=20&key=${apiKey}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      return data.items || [];
-    }
+  for (const item of data.items) {
+    const time = item.snippet.publishedAt;
+    if (lastTimestamp && time <= lastTimestamp) continue;
+    lastTimestamp = time;
 
-    async function start() {
-      commentsDiv.innerHTML = "";
+    const author = item.authorDetails.displayName;
+    const original = item.snippet.displayMessage;
+    const target = document.getElementById("targetLang").value;
 
-      const videoId = document.getElementById("videoId").value.trim();
-      const apiKey = document.getElementById("apiKey").value.trim();
-      const target = document.getElementById("targetLang").value;
+    const translated = await translate(original, target);
+    addComment(author, translated, original);
+  }
+}
 
-      if (!videoId || !apiKey) {
-        alert("動画IDとAPI Keyを入力してください");
-        return;
-      }
+// ④ 表示
+function addComment(author, translated, original) {
+  const div = document.createElement("div");
+  div.className = "comment";
+  div.innerHTML = `
+    <div class="author">${author}</div>
+    <div class="translated">${translated}</div>
+    <div class="original">原文：${original}</div>
+  `;
+  document.getElementById("log").appendChild(div);
+}
 
-      const items = await fetchComments(videoId, apiKey);
+// ⑤ 開始
+async function start() {
+  const videoId = document.getElementById("videoId").value.trim();
+  const apiKey = document.getElementById("apiKey").value.trim();
+  if (!videoId || !apiKey) {
+    alert("動画IDとAPI Keyを入力してね！");
+    return;
+  }
 
-      for (const item of items) {
-        const original = item.snippet.topLevelComment.snippet.textDisplay;
+  liveChatId = await fetchLiveChatId(videoId, apiKey);
+  if (!liveChatId) {
+    alert("ライブ配信が見つかりません！");
+    return;
+  }
 
-        const div = document.createElement("div");
-        div.className = "comment";
-        div.innerHTML = `
-          <div class="original">${original}</div>
-          <div class="translated">翻訳中…</div>
-        `;
-        commentsDiv.appendChild(div);
+  setInterval(() => pollComments(apiKey), 2000);
+}
+</script>
 
-        // 翻訳は後から非同期で実行
-        smartTranslate(original, target).then(result => {
-          div.querySelector(".translated").innerHTML =
-            result.text +
-            (result.translated
-              ? '<span class="badge">翻訳</span>'
-              : '<span class="badge">原文</span>');
-        });
-      }
-    }
-  </script>
 </body>
 </html>
