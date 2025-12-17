@@ -3,38 +3,43 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTubeコメント自動翻訳</title>
+  <title>YouTubeコメント自動翻訳（安定版）</title>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f7f7f7;
+      background: #f6f6f6;
       padding: 1rem;
     }
-    h1 { font-size: 1.4rem; }
+    h1 { font-size: 1.3rem; }
     input, select, button {
-      padding: 0.4rem;
-      margin: 0.2rem 0;
-      font-size: 1rem;
       width: 100%;
+      padding: 0.4rem;
+      margin: 0.3rem 0;
+      font-size: 1rem;
+    }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
     }
     .comment {
       background: #fff;
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 0.6rem;
       margin-top: 0.6rem;
       box-shadow: 0 2px 6px rgba(0,0,0,0.08);
     }
     .original {
-      color: #333;
       font-size: 0.95rem;
+      color: #333;
     }
     .translated {
       margin-top: 0.3rem;
-      color: #0066cc;
+      color: #2563eb;
       font-weight: bold;
     }
     .badge {
-      display: inline-block;
       font-size: 0.7rem;
       background: #eee;
       padding: 0.1rem 0.4rem;
@@ -44,10 +49,10 @@
   </style>
 </head>
 <body>
-  <h1>YouTubeコメント自動翻訳</h1>
+  <h1>📺 YouTubeコメント自動翻訳（安定版）</h1>
 
   <label>動画ID</label>
-  <input id="videoId" placeholder="例: dQw4w9WgXcQ" />
+  <input id="videoId" placeholder="dQw4w9WgXcQ" />
 
   <label>YouTube Data API Key</label>
   <input id="apiKey" placeholder="AIza..." />
@@ -57,7 +62,6 @@
     <option value="ja">日本語</option>
     <option value="en">English</option>
     <option value="ko">한국어</option>
-    <option value="zh">中文</option>
   </select>
 
   <button onclick="start()">取得開始</button>
@@ -81,24 +85,24 @@
       const res = await fetch("https://libretranslate.de/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          q: text,
-          source: "auto",
-          target: target,
-          format: "text"
-        })
+        body: JSON.stringify({ q: text, source: "auto", target })
       });
       const data = await res.json();
       return data.translatedText;
     }
 
     async function smartTranslate(text, target) {
-      const lang = await detectLanguage(text);
-      if (lang === target) {
-        return { text, translated: false };
+      try {
+        const lang = await detectLanguage(text);
+        if (lang === target) {
+          return { text, translated: false };
+        }
+        const t = await translate(text, target);
+        return { text: t, translated: true };
+      } catch (e) {
+        console.error(e);
+        return { text: "（翻訳失敗）", translated: false };
       }
-      const t = await translate(text, target);
-      return { text: t, translated: true };
     }
 
     async function fetchComments(videoId, apiKey) {
@@ -110,6 +114,7 @@
 
     async function start() {
       commentsDiv.innerHTML = "";
+
       const videoId = document.getElementById("videoId").value.trim();
       const apiKey = document.getElementById("apiKey").value.trim();
       const target = document.getElementById("targetLang").value;
@@ -123,17 +128,23 @@
 
       for (const item of items) {
         const original = item.snippet.topLevelComment.snippet.textDisplay;
-        const result = await smartTranslate(original, target);
 
         const div = document.createElement("div");
         div.className = "comment";
         div.innerHTML = `
           <div class="original">${original}</div>
-          <div class="translated">${result.text}
-            ${result.translated ? '<span class="badge">翻訳</span>' : '<span class="badge">原文</span>'}
-          </div>
+          <div class="translated">翻訳中…</div>
         `;
         commentsDiv.appendChild(div);
+
+        // 翻訳は後から非同期で実行
+        smartTranslate(original, target).then(result => {
+          div.querySelector(".translated").innerHTML =
+            result.text +
+            (result.translated
+              ? '<span class="badge">翻訳</span>'
+              : '<span class="badge">原文</span>');
+        });
       }
     }
   </script>
