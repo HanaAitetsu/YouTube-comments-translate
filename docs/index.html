@@ -39,6 +39,33 @@ let liveChatId = null;
 let nextPageToken = null;
 let pollingInterval = 5000;
 
+<script>
+const API_KEY = "ここにYouTube APIキー";
+const TRANSLATE_API = "https://libretranslate.de/translate";
+
+ async function translateText(text, target = "ja") {
+  const res = await fetch(TRANSLATE_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      q: text,
+      source: "auto",
+      target: target,
+      format: "text"
+    })
+  });
+
+ function isJapanese(text) {
+  return /[ぁ-んァ-ン一-龯]/.test(text);
+}
+
+
+  const data = await res.json();
+  return data.translatedText;
+}
+
 async function start() {
   const videoId = document.getElementById("videoId").value;
   await fetchLiveChatId(videoId);
@@ -79,19 +106,35 @@ async function fetchChatLoop() {
   setTimeout(fetchChatLoop, pollingInterval);
 }
 
-function addComment(item) {
+async function addComment(item) {
   if (item.snippet.type !== "textMessageEvent") return;
+
+  const original = item.snippet.displayMessage;
+  let translated = "";
+
+  if (isJapanese(original)) {
+    translated = "（日本語コメント）";
+  } else {
+    try {
+      translated = await translateText(original, "ja");
+    } catch {
+      translated = "（翻訳失敗）";
+    }
+  }
 
   const div = document.createElement("div");
   div.className = "comment";
 
   div.innerHTML = `
-    <span class="author">${item.authorDetails.displayName}</span>：
-    ${item.snippet.displayMessage}
+    <div style="color:#aaa;font-size:0.9em;">
+      ${item.authorDetails.displayName}：${original}
+    </div>
+    <div style="font-weight:bold;">
+      ${translated}
+    </div>
   `;
 
-  const comments = document.getElementById("comments");
-  comments.prepend(div);
+  document.getElementById("comments").prepend(div);
 }
 </script>
 
